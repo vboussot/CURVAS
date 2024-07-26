@@ -5,6 +5,7 @@ import numpy as np
 from typing import Any, Union
 import copy
 import itertools
+from functools import partial
 
 class Attribute(dict[str, Any]):
 
@@ -233,3 +234,76 @@ def getData(data : torch.Tensor, patch_size: list[int], slices: list[slice]) -> 
         padding.append(0)
         padding.append(p)
     return F.pad(data_sliced, tuple(padding), "constant", 0)
+
+class PathCombine():
+
+    def __init__(self) -> None:
+        self.data: torch.Tensor = None
+        self.overlap: int = None
+
+    def setPatchConfig(self, patch_size: list[int], overlap: int):
+        self.data = F.pad(torch.ones([size-overlap*2 for size in patch_size]), [overlap]*2*len(patch_size), mode="constant", value=0)
+        self.data = self._setFunction(self.data, overlap)
+        dim = len(patch_size)
+
+        A = slice(0, overlap)
+        B = slice(-overlap, None)
+        C = slice(overlap, -overlap)
+        
+        for i in range(dim):
+            slices_badge = list(itertools.product(*[[A, B] for _ in range(dim-i)]))
+            for indexs in itertools.combinations([0,1,2], i):
+                result = []
+                for slices in slices_badge:
+                    slices = list(slices)
+                    for index in indexs:
+                        slices.insert(index, C)    
+                    result.append(tuple(slices))
+                for patch, s in zip(PathCombine._normalise([self.data[s] for s in result]), result):
+                    self.data[s] = patch
+
+
+    @staticmethod
+    def _normalise(patchs: list[torch.Tensor]) -> list[torch.Tensor]:
+        data_sum = torch.sum(torch.concat([patch.unsqueeze(0) for patch in patchs], dim=0), dim=0)
+        return [d/data_sum for d in patchs]
+            
+    def __call__(self, input: torch.Tensor) -> torch.Tensor:
+        return self.data.repeat([input.shape[0]]+[1]*(len(input.shape)-1)).to(input.device)*input
+
+class Cosinus(PathCombine):
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def _function_sides(self, overlap: int, x: float):
+        return np.clip(np.cos(np.pi/(2*(overlap+1))*x), 0, 1)
+
+    def _setFunction(self, data: torch.Tensor, overlap: int) -> torch.Tensor:
+        image = sitk.GetImageFromArray(np.asarray(data, dtype=np.uint8))
+        danielssonDistanceMapImageFilter = sitk.DanielssonDistanceMapImageFilter()
+        distance = torch.tensor(sitk.GetArrayFromImage(danielssonDistanceMapImageFilter.Execute(image)))
+        return distance.apply_(partial(self._function_sides, overlap))
+    
+class Accumulator():
+
+    def __init__(self, patch_slices: list[tuple[slice]], patch_size: list[int], overlap: int, nb_channel: int) -> None:
+        self.patchCombine = Cosinus()
+        self.patchCombine.setPatchConfig(patch_size, overlap)
+
+        self.patch_slices = []
+        for patch in patch_slices:
+            slices = []
+            for s, shape in zip(patch, patch_size):
+                slices.append(slice(s.start, s.start+shape))
+            self.patch_slices.append(tuple(slices))
+        self.shape = max([[v.stop for v in patch] for patch in patch_slices])
+        self.patch_size = patch_size
+        self.result = torch.zeros(([nb_channel]+list(max([[v.stop for v in patch] for patch in self.patch_slices])))).to(0)
+        
+    def addLayer(self, index: int, data: torch.Tensor) -> None:
+        slices_dest = tuple([slice(None)] + list(self.patch_slices[index]))
+        self.result[slices_dest] += self.patchCombine(data)
+    
+    def getResult(self):
+        return self.result[tuple([slice(None, None)]+[slice(0, s) for s in self.shape])]
