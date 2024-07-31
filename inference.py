@@ -58,8 +58,8 @@ def perform_inference(input_image: sitk.Image) -> tuple[np.ndarray, np.ndarray, 
     patch_size = [128,128,128]
     overlap = 20
 
-    class_values = [7, 2, 3, 5] 
-    nb_inference = 20
+    class_values = {7:1, 2:2, 3:2, 5:3}
+    nb_inference = 2
 
     data = torch.load(RESOURCE_PATH / "Data.pt")
     means, stds = data["means"], data["stds"]
@@ -74,25 +74,26 @@ def perform_inference(input_image: sitk.Image) -> tuple[np.ndarray, np.ndarray, 
     data = dataProcessing.pre_process(data, attributes)
     patch_slices, _ = get_patch_slices_from_shape(patch_size, data.shape[1:], overlap)
 
-    accumulator = Accumulator(patch_slices, patch_size, overlap, 4)
+    accumulator = Accumulator(patch_slices, patch_size, overlap, nb_class)
 
     with autocast():
         with torch.no_grad():
-            for _ in tqdm(range(nb_inference), desc='Processing'):
+            for i in range(nb_inference):
                 bayesian_model.resample_bayesian_weights()
                 for index, slices in enumerate(patch_slices):
                     d = getData(data.unsqueeze(0), patch_size, slices)
                     _, layers = bayesian_model(d)
-                    output = torch.nn.functional.one_hot(torch.argmax(layers[-1][0], dim=0), num_classes=nb_class).permute((3, 0, 1, 2)).index_select(0, torch.tensor(class_values, device=0))
+                    output = layers[-1][0].cpu()
                     accumulator.addLayer(index, output)
-            
-    seg_patches = accumulator.getResult()
-    output = dataProcessing.post_process((torch.stack([seg_patches[0], seg_patches[1]+seg_patches[2], seg_patches[3]])/nb_inference).cpu(), attributes).numpy()
-    output_segmentation =  np.zeros(output.shape[1:], dtype=np.uint8)
-    for i, prob in enumerate(output):
-        output_segmentation[np.where(prob > 0.6)] = i+1
-    return output_segmentation, *output
+                print("Progress : {} | {}".format(i, nb_inference))
+    seg_patches = accumulator.getResult()/nb_inference
+    output = torch.argmax(seg_patches, dim=0)
+    output_segmentation = torch.zeros(data.shape[1:], dtype=torch.uint8)
+    for old_class, new_class in class_values.items():
+        output_segmentation[output == old_class] = new_class
+    output_segmentation = dataProcessing.post_process(output_segmentation.unsqueeze(0), copy.deepcopy(attributes)).squeeze(0).numpy()
 
+    return output_segmentation, dataProcessing.post_process(seg_patches[7].unsqueeze(0), copy.deepcopy(attributes)).squeeze(0).numpy(), dataProcessing.post_process((seg_patches[2]+seg_patches[3]).unsqueeze(0), copy.deepcopy(attributes)).squeeze(0).numpy(), dataProcessing.post_process(seg_patches[5].unsqueeze(0), copy.deepcopy(attributes)).squeeze(0).numpy()
 
 def write_array_as_image_file(location: Path, data: np.ndarray, initial_image: sitk.Image):
     location.mkdir(parents=True, exist_ok=True)
