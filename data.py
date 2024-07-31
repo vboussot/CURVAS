@@ -171,7 +171,7 @@ class DataProcessing():
     def __init__(self) -> None:
         self.canonical = Canonical()
         self.resampleIsotropic = ResampleIsotropic([1.5, 1.5, 1.5])
-        self.padding = Padding([20]*6, "constant:0")
+        self.padding = Padding([20]*6, "constant:-1.5")
 
     def pre_process(self, data: torch.Tensor, attributes: Attribute) -> torch.Tensor:
         data = self.canonical(data, attributes)
@@ -233,7 +233,7 @@ def getData(data : torch.Tensor, patch_size: list[int], slices: list[slice]) -> 
         p = 0 if _slice.start+patch_size[-dim_it-1] <= data.shape[-dim_it-1] else patch_size[-dim_it-1]-(data.shape[-dim_it-1]-_slice.start)
         padding.append(0)
         padding.append(p)
-    return F.pad(data_sliced, tuple(padding), "constant", 0)
+    return F.pad(data_sliced, tuple(padding), "constant", -1.5)
 
 class PathCombine():
 
