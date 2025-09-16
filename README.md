@@ -1,6 +1,6 @@
 [![Grand Challenge](https://img.shields.io/badge/Grand%20Challenge-CURVAS-blue)](https://curvas.grand-challenge.org/) [![Hugging Face](https://img.shields.io/badge/🤗%20Hugging%20Face-CURVAS-orange)](https://huggingface.co/VBoussot/Curvas)
 
-# CURVAS 2025: Bayesian Uncertainty with Pre-trained TotalSegmentator (3rd place 🥈)
+# CURVAS: Bayesian Uncertainty with Pre-trained TotalSegmentator (3rd place 🥈)
 
 This repository provides the code, configurations, and models used for our submission to the **first edition of the CURVAS Challenge**, focused on **uncertainty-aware segmentation** of **abdominal organs (pancreas, kidneys, liver)** from CT scans.  
 Our approach extends the **pre-trained TotalSegmentator model** with **Adaptable Bayesian Neural Network (ABNN)** layers to model **inter-annotator variability** and produce **voxel-wise uncertainty maps**.
